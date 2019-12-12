@@ -187,31 +187,23 @@ void mixColumns(uint8_t* state, bool isInv)
 // Multiplication in a GF 2^8
 uint8_t multGF(uint8_t a, uint8_t b)
 {
-  uint16_t bshift = (uint16_t) b;
-  uint16_t result = 0;
-  while (a > 0)
+  uint8_t result = 0;
+  while (a && b)
   {
-    if ((a & 0x01) == 1)
+    if ((b & 0x01) == 1) //Check the last digit of b if it's odd
     {
-      result ^= bshift;
+      result ^= a; //If so, add it to the final product
     }
-    bshift <<= 1;
-    a >>= 1;
-  }
-  uint16_t modulus = 0x11B << 7;
-  uint8_t shift = 15;
-  while (result > 0x0100)
-  {
-    if ((0x01 << shift) & result)
+    b >>= 1; //Shift b rightwards so we can move on to the next-to-last digit
+    if ((a & 0x80) == 1) //Check if a is going to overflow
     {
-      result ^= modulus;
+      a ^= 0x11b; //If so, XOR with 0x11B, so that it won't overflow
     }
-    shift--;
-    modulus >>=1;
+    a <<= 1; //Shift a leftwards
   }
-  return (uint8_t) result;
-
+  return result;
 }
+
 
 // addRoundKey
 void addRoundKey(uint8_t* state, uint8_t start)

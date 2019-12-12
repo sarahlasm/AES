@@ -1,5 +1,7 @@
 
 #include <stdbool.h>
+#include <stdlib.h>
+#include <memory.h>
 
 #define NK 4
 #define NB 4
@@ -7,6 +9,7 @@
 #define WORDSIZE NB*(NR+1)
 
 void cipher(uint8_t* input, uint8_t* output);
+void invCipher(uint8_t* input, uint8_t* output);
 void subBytes(uint8_t* state);
 void invSubBytes(uint8_t* state);
 void shiftRows(uint8_t* state, bool isInv);

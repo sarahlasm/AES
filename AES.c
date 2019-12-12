@@ -1,3 +1,8 @@
+/**
+* AES implementation
+* Sarah Lasman
+*/
+
 // Only need to implement for 128 bits
 // https://csrc.nist.gov/csrc/media/publications/fips/197/final/documents/fips-197.pdf
 // Just implement one algorithm for regular and inverse
@@ -11,9 +16,7 @@
 #include "AES.h"
 #include <stdio.h>
 
-static uint8_t* key;
-
-static uint32_t roundKey;
+uint32_t roundKey[NB*(NR+1)];
 
 static const uint8_t sbox[256] = {
   0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
@@ -53,38 +56,86 @@ static const uint8_t inv_sbox[256] = {
   0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D
 };
 
-void cipher(uint8_t* input, uint8_t* output, uint32_t word[WORDSIZE])
+static const uint32_t rcon[10] = {
+  0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000,
+  0x20000000, 0x40000000, 0x80000000, 0x1b000000, 0x36000000
+};
+
+// Cipher algorithm
+void cipher(uint8_t* input, uint8_t* output)
 {
   uint8_t state[16];
   for (int i = 0; i < 16; ++i)
   {
     state[i] = input[i];
   }
-
-  //addRoundKey(state, word[0, NB-1]);
-  for (int round = 0; round < NR-1; ++round)
+  addRoundKey(state, 0);
+  for (int round = 1; round < NR; ++round)
   {
-    subBytes(state, sbox);
+    subBytes(state);
     shiftRows(state, false);
-    mixColumns(state);
-    //addRoundKey(state, word[round*NB, (round+1)*NB-1]);
+    mixColumns(state, false);
+    addRoundKey(state, round);
   }
-  subBytes(state, sbox);
+  subBytes(state);
   shiftRows(state, false);
-  //addRoundKey(state, word[NR*NB, (NR+1)*NB-1]);
+  addRoundKey(state, NR);
 
-  output = state;
+  for (int i = 0; i < 16; ++i)
+  {
+    output[i] = state[i];
+  }
+
 }
 
-void subBytes(uint8_t* state, uint8_t* box)
+// Inverse Cipher algorithm
+void invCipher(uint8_t* input, uint8_t* output)
+{
+  uint8_t state[16];
+
+  for (int i = 0; i < 16; ++i)
+  {
+    state[i] = input[i];
+  }
+
+  addRoundKey(state, NR);
+  for (int round = NR-1; round > 0; --round)
+  {
+    shiftRows(state, true);
+    invSubBytes(state);
+    addRoundKey(state, round);
+    mixColumns(state, true);
+  }
+  shiftRows(state, true);
+  invSubBytes(state);
+  addRoundKey(state, 0);
+
+  for (int i = 0; i < 16; ++i)
+  {
+    output[i] = state[i];
+  }
+}
+
+// subBytes
+void subBytes(uint8_t* state)
 {
   for (int i = 0; i < 16; ++i)
   {
-    state[i] = box[state[i]];
+    state[i] = sbox[state[i]];
   }
-  return;
 }
 
+// invSubBytes
+void invSubBytes(uint8_t* state)
+{
+  for (int i = 0; i < 16; ++i)
+  {
+    state[i] = inv_sbox[state[i]];
+  }
+}
+
+// shiftRows and invShiftRows
+// param isInv is true if running inverse, false otherwise
 void shiftRows(uint8_t* state, bool isInv)
 {
   uint8_t temp[4];
@@ -93,35 +144,92 @@ void shiftRows(uint8_t* state, bool isInv)
     for (int c = 0; c < 4; ++c)
     {
       if (!isInv)
-        temp[(c+4-r) % 4] = state[r*4 + c];
+        temp[(c+4-r) % 4] = state[c*4 + r];
       else
-        temp[(c+r) % 4] = state[r*4 + c];
+        temp[(c+r) % 4] = state[c*4 + r];
     }
     for (int c = 0; c < 4; ++c)
     {
-      state[r*4 + c] = temp[c];
+      state[c*4 + r] = temp[c];
     }
   }
 }
 
-void mixColumns(uint8_t* state)
+// mixColumns and invMixColumns
+// param isInv is true if running inverse, false otherwise
+void mixColumns(uint8_t* state, bool isInv)
 {
   uint8_t temp[4];
+  for (int i = 0; i < NB; ++i)
+  {
+    if (!isInv)
+    {
+      temp[0] = multGF(0x02, state[i*4]) ^ multGF(0x03, state[i*4+1]) ^ state[i*4+2] ^ state[i*4+3];
+      temp[1] = state[i*4] ^ multGF(0x02, state[i*4+1]) ^ multGF(0x03, state[i*4+2]) ^ state[i*4+3];
+      temp[2] = state[i*4] ^ state[i*4+1] ^ multGF(0x02, state[i*4+2]) ^ multGF(0x03, state[i*4+3]);
+      temp[3] = multGF(0x03, state[i*4]) ^ state[i*4+1] ^ state[i*4+2] ^ multGF(0x02, state[i*4+3]);
+    }
+    else
+    {
+      temp[0] = multGF(0x0e, state[i*4]) ^ multGF(0x0b, state[i*4+1]) ^ multGF(0x0d, state[i*4+2]) ^ multGF(0x09, state[i*4+3]);
+      temp[1] = multGF(0x09, state[i*4]) ^ multGF(0x0e, state[i*4+1]) ^ multGF(0x0b, state[i*4+2]) ^ multGF(0x0d, state[i*4+3]);
+      temp[2] = multGF(0x0d, state[i*4]) ^ multGF(0x09, state[i*4+1]) ^ multGF(0x0e, state[i*4+2]) ^ multGF(0x0b, state[i*4+3]);
+      temp[3] = multGF(0x0b, state[i*4]) ^ multGF(0x0d, state[i*4+1]) ^ multGF(0x09, state[i*4+2]) ^ multGF(0x0e, state[i*4+3]);
+
+    }
+
+    for (int j = 0; j < 4; ++j)
+    {
+      state[i*4 + j] = temp[j];
+    }
+  }
   return;
 }
 
-void addRoundKey(uint8_t* state, uint8_t round)
+// x^8 + x^4 + x^3 + x + 1 = 0x11B
+// Multiplication in a GF 2^8
+uint8_t multGF(uint8_t a, uint8_t b)
+{
+  uint16_t bshift = (uint16_t) b;
+  uint16_t result = 0;
+  while (a > 0)
+  {
+    if ((a & 0x01) == 1)
+    {
+      result ^= bshift;
+    }
+    bshift <<= 1;
+    a >>= 1;
+  }
+  uint16_t modulus = 0x11B << 7;
+  uint8_t shift = 15;
+  while (result > 0x0100)
+  {
+    if ((0x01 << shift) & result)
+    {
+      result ^= modulus;
+    }
+    shift--;
+    modulus >>=1;
+  }
+  return (uint8_t) result;
+
+}
+
+// addRoundKey
+void addRoundKey(uint8_t* state, uint8_t start)
 {
   for (int i = 0; i < 4; ++i)
   {
-    for (int j = 0; j < 4; ++j)
-    {
+    state[i*4] ^= (roundKey[(start*4) + i]) >> 24;
+    state[i*4+1] ^= (roundKey[(start*4) + i]) >> 16;
+    state[i*4+2] ^= (roundKey[(start*4) + i]) >> 8;
+    state[i*4+3] ^= (roundKey[(start*4) + i]);
 
-    }
   }
-  return;
 }
 
+// keyExpansion expands the cipher key into the roundKey matrix
 void keyExpansion(uint8_t* key)
 {
   uint32_t temp;
@@ -137,13 +245,13 @@ void keyExpansion(uint8_t* key)
 
     if (i % NK == 0)
     {
-      temp = subWord(rotWord(temp));
-      temp ^= rCon[i/NK];
+      temp = subWord(rotWord(temp)) ^ rcon[(i-NK)/NK];
     }
     roundKey[i] = roundKey[i-NK] ^ temp;
   }
 }
 
+// runs subBytes on a single word
 uint32_t subWord(uint32_t temp)
 {
   uint8_t* words = (uint8_t*)&temp;
@@ -154,6 +262,7 @@ uint32_t subWord(uint32_t temp)
   return temp;
 }
 
+// rotates a word
 uint32_t rotWord(uint32_t temp)
 {
   uint8_t first = (temp & 0xFF000000) >> 24;
@@ -165,29 +274,40 @@ uint32_t rotWord(uint32_t temp)
 int main()
 {
   uint8_t state[16] = {
-    0xde, 0xad, 0xbe, 0xef,
-    0x01, 0x02, 0x03, 0x04,
-    0xaa, 0xab, 0xac, 0xad,
-    0x99, 0x00, 0x32, 0xee
+    0x32, 0x43, 0xf6, 0xa8,
+    0x88, 0x5a, 0x30, 0x8d,
+    0x31, 0x31, 0x98, 0xa2,
+    0xe0, 0x37, 0x07, 0x34
   };
   uint32_t state2[4] = {
       0xdeadbeef,
       0x01020304,
       0xaaabacad,
       0x990032ee
-    };
-  rotWord(state2[0]);
+  };
+  uint8_t cipherKey[16] = {
+    0x2b, 0x7e, 0x15, 0x16,
+    0x28, 0xae, 0xd2, 0xa6,
+    0xab, 0xf7, 0x15, 0x88,
+    0x09, 0xcf, 0x4f, 0x3c
+  };
+
+  keyExpansion(cipherKey);
+  uint8_t out1[16];
+  uint8_t out2[16];
+
   for (int i = 0; i < 16; ++i)
   {
     printf("%x ", state[i]);
-    if ((i+1)%4 == 0)
-      printf("\n");
+    if ((i+1)%4 == 0) printf("\n");
   }
-  shiftRows(state, false);
+
+  cipher(state, out1);
+  invCipher(out1, out2);
+
   for (int i = 0; i < 16; ++i)
   {
-    printf("%x ", state[i]);
-    if ((i+1)%4 == 0)
-      printf("\n");
+    printf("%x ", out2[i]);
+    if ((i+1)%4 == 0) printf("\n");
   }
 }
